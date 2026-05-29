@@ -298,3 +298,55 @@ datasource와 dashboard는 provisioning 파일로 관리했습니다.
 
 simulator는 이벤트를 생성하는 역할이므로 `replicas: 1`로 설정했습니다.
 복제 수를 늘리면 이벤트 생성량도 함께 증가하므로, 이 과제에서는 예측 가능한 이벤트 양을 유지하는 구성이 더 적합하다고 판단했습니다.
+
+## 선택 과제. AWS 아키텍처 설계
+
+이 파이프라인을 AWS에서 운영한다면 아래와 같이 구성할 수 있다고 판단했습니다.
+
+![AWS architecture](images/aws-architecture.png)
+
+```text
+CloudFront -> Kinesis -> EMR -> S3 -> Redshift -> Amazon Managed Grafana
+```
+
+| 구간 | AWS 서비스 | 역할 |
+|---|---|---|
+| 이벤트 유입 | CloudFront | 사용자 요청과 정적 콘텐츠 전송 지점 |
+| 수집 | Kinesis Data Streams | 웹/앱 이벤트를 실시간 스트림으로 수집 |
+| 처리 | EMR | Spark 기반으로 이벤트 정제, 집계, 비정형 데이터 처리 |
+| 저장 | S3 | raw/processed/data warehouse 계층의 데이터 lake |
+| 분석 | Redshift | 집계 쿼리와 대시보드 조회를 위한 OLAP 데이터웨어하우스 |
+| 시각화 | Amazon Managed Grafana | Redshift 지표를 대시보드로 시각화 |
+
+**Kinesis를 선택한 이유**
+
+Kafka 기반 managed service인 MSK도 고려할 수 있지만,
+이 설계에서는 Kafka 호환성보다 AWS 안에서 이벤트 수집, 저장, 분석까지 단순하게 연결하는 구성이 더 중요하다고 봤습니다.
+Kinesis는 producer/consumer를 붙이기 쉽고, shard 단위로 처리량을 조절할 수 있어 이벤트 수집 계층에 적합하다고 판단했습니다.
+
+**EMR을 선택한 이유**
+
+이벤트 로그는 처음부터 완전히 정형화되어 들어오지 않을 수 있습니다.
+EMR은 Spark 기반으로 JSON 로그 정제, 필드 보정, 세션 단위 집계, 비정형/반정형 데이터 처리까지 유연하게 수행할 수 있습니다.
+단순 적재만 필요하다면 Lambda나 Glue도 가능하지만, 데이터 양이 커지고 처리 로직이 복잡해질 경우 EMR이 더 확장성 있는 선택이라고 판단했습니다.
+
+**Redshift를 선택한 이유**
+
+최종 분석 저장소는 OLAP 성격이 필요하다고 봤습니다.
+이 과제의 핵심 쿼리는 개별 row 조회보다 `COUNT`, `GROUP BY`, 시간대별 추이, 결제 퍼널처럼 대량 이벤트를 집계하는 형태입니다.
+Redshift는 이런 데이터웨어하우스 쿼리에 적합하고, Grafana나 BI 도구와 연결해 시각화하기 좋다고 판단했습니다.
+
+**서비스 역할 차이**
+
+- Kinesis는 이벤트를 받아 임시로 흘려보내는 스트리밍 수집 계층입니다.
+- EMR은 수집된 이벤트를 분석 가능한 형태로 정제하고 가공하는 처리 계층입니다.
+- S3는 원본과 처리 결과를 저렴하게 오래 보관하는 데이터 lake 역할입니다.
+- Redshift는 정제된 데이터를 빠르게 집계하는 분석용 저장소입니다.
+- Managed Grafana는 분석 결과를 운영자가 볼 수 있는 대시보드로 표현하는 시각화 계층입니다.
+
+**가장 고민한 부분**
+
+가장 고민한 부분은 비용입니다.
+Redshift와 EMR은 모두 강력하지만 작은 서비스나 과제 규모에서는 부담이 큰 자원입니다.
+실제 운영에서는 트래픽과 데이터 크기에 맞춰 처음에는 S3, Glue, Athena, Lambda 같은 서버리스 조합으로 시작하고,
+데이터 처리량과 분석 요구가 커졌을 때 EMR이나 Redshift로 확장하는 방식이 더 현실적이라고 생각했습니다.
