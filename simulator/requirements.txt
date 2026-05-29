@@ -1,0 +1,2 @@
+# simulator/requirements.txt
+confluent-kafka==2.3.0
