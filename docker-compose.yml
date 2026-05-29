@@ -1,0 +1,152 @@
+# docker-compose.yml
+services:
+
+  # ────────────────────────────────────────────────────────────────
+  # Kafka (KRaft 모드, 단일 노드) — 토픽 생성은 별도 init 컨테이너에서 수행
+  # ────────────────────────────────────────────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: liveclass-kafka
+    ports:
+      - "9092:9092"
+    environment:
+      # 단일 브로커 KRaft 구성. 과제 로컬 환경에서는 ZooKeeper 없이 Kafka만 실행한다.
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      # Compose 내부 컨테이너들은 kafka:9092 이름으로 브로커에 접속한다.
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # ────────────────────────────────────────────────────────────────
+  # Kafka init — 토픽 명시적 생성
+  # ────────────────────────────────────────────────────────────────
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: liveclass-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    # 토픽을 명시적으로 생성해 Consumer/Producer가 자동 생성 정책에 의존하지 않도록 한다.
+    command: |
+      "
+      echo 'Creating Kafka topics...' &&
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic events.user     --partitions 1 --replication-factor 1 &&
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic events.learning --partitions 1 --replication-factor 1 &&
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic events.commerce --partitions 1 --replication-factor 1 &&
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic events.error    --partitions 1 --replication-factor 1 &&
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic events.dead_letter --partitions 1 --replication-factor 1 &&
+      echo 'Topics created successfully.'
+      "
+
+  # ────────────────────────────────────────────────────────────────
+  # ClickHouse (init.sql 자동 실행 + Named Volume)
+  # ────────────────────────────────────────────────────────────────
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    container_name: liveclass-clickhouse
+    ports:
+      - "8123:8123"   # HTTP
+      - "9000:9000"   # Native protocol
+    volumes:
+      # 첫 실행 시 events 테이블을 자동 생성한다.
+      - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      # 로컬 과제 환경에서는 기본 계정으로 접근할 수 있게 사용자 설정을 고정한다.
+      - ./clickhouse/users.xml:/etc/clickhouse-server/users.d/custom-users.xml:ro
+      # 컨테이너 재시작 후에도 적재된 이벤트를 유지한다.
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+    restart: unless-stopped
+
+  # ────────────────────────────────────────────────────────────────
+  # Consumer — Kafka 4개 토픽 → ClickHouse bulk insert
+  # ────────────────────────────────────────────────────────────────
+  consumer:
+    build:
+      context: ./consumer
+    container_name: liveclass-consumer
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        # 토픽 생성이 끝난 뒤 구독해야 초기 구동 실패를 줄일 수 있다.
+        condition: service_completed_successfully
+      clickhouse:
+        # ClickHouse가 준비된 뒤 적재 Consumer를 시작한다.
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER: ${KAFKA_BROKER:-kafka:9092}
+      CLICKHOUSE_HOST: ${CLICKHOUSE_HOST:-clickhouse}
+      CLICKHOUSE_PORT: ${CLICKHOUSE_PORT:-8123}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-default}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
+    restart: unless-stopped
+
+  # ────────────────────────────────────────────────────────────────
+  # Simulator — 10건/초 이벤트 생성, 지속 실행
+  # ────────────────────────────────────────────────────────────────
+  simulator:
+    build:
+      context: ./simulator
+    container_name: liveclass-simulator
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        # Producer가 이벤트를 보내기 전에 대상 토픽을 먼저 만든다.
+        condition: service_completed_successfully
+    environment:
+      KAFKA_BROKER: kafka:9092
+      EVENTS_PER_SECOND: ${EVENTS_PER_SECOND:-10}
+    restart: unless-stopped
+
+  # ────────────────────────────────────────────────────────────────
+  # Grafana — 자동 프로비저닝 대시보드
+  # ────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: liveclass-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
+    volumes:
+      # datasource와 dashboard를 파일로 자동 프로비저닝한다.
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  clickhouse_data:

@@ -1,0 +1,23 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Build & distribution
+dist/
+build/
+*.egg-info/
+
+# Test & type-checking caches
+.pytest_cache/
+.mypy_cache/
+
+# Editor configs
+.vscode/
+.idea/
