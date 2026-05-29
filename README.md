@@ -10,8 +10,7 @@ docker compose up --build
 위 명령으로 Kafka, ClickHouse, 이벤트 생성기, Consumer, Grafana가 함께 실행됩니다.
 이벤트 생성기는 랜덤 이벤트를 Kafka로 전송하고, Consumer는 이를 ClickHouse `events` 테이블에 저장합니다.
 
-- Grafana: http://localhost:3000 (`admin` / `admin`)
-- ClickHouse: http://localhost:8123
+- Grafana: http://localhost:3000 (id: `admin` / pwd: `admin`)
 
 Grafana의 `LiveClass 이벤트 대시보드`에서 집계 결과를 확인할 수 있습니다.
 
