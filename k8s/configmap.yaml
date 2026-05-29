@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: simulator-config
+  namespace: liveclass
+data:
+  KAFKA_BROKER: "kafka:9092"
+  EVENTS_PER_SECOND: "10"
