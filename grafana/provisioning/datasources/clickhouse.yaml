@@ -1,0 +1,18 @@
+# grafana/provisioning/datasources/clickhouse.yaml
+apiVersion: 1
+
+datasources:
+  - name: ClickHouse
+    type: grafana-clickhouse-datasource
+    uid: liveclass-clickhouse
+    isDefault: true
+    jsonData:
+      host: clickhouse
+      port: 9000
+      username: default
+      defaultDatabase: default
+      protocol: native
+      tlsSkipVerify: true
+    secureJsonData:
+      password: ""
+    editable: false

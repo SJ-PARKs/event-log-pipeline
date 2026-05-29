@@ -1,0 +1,311 @@
+{
+  "annotations": { "list": [] },
+  "description": "LiveClass 이벤트 파이프라인 실시간 모니터링 대시보드",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "liveclass-clickhouse"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "mode": "none", "group": "A" },
+            "axisPlacement": "auto",
+            "scaleDistribution": { "type": "linear" },
+            "hideFrom": { "tooltip": false, "viz": false, "legend": false }
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "liveclass-clickhouse"
+          },
+          "format": 1,
+          "rawSql": "SELECT $__timeInterval(received_at) AS time, countIf(event_type IN ('page_view','course_view','search')) AS browse, countIf(event_type IN ('lecture_start','lecture_complete','lecture_drop')) AS learning, countIf(event_type IN ('checkout_start','purchase_complete','payment_failed')) AS commerce, countIf(event_type IN ('video_load_error','api_error')) AS error, count() AS total FROM events FINAL WHERE $__timeFilter(received_at) GROUP BY time ORDER BY time ASC",
+          "refId": "A"
+        }
+      ],
+      "title": "실시간 이벤트 트렌드 (1분 단위)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "liveclass-clickhouse"
+      },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" } },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "id": 2,
+      "options": {
+        "barWidth": 0.7,
+        "groupWidth": 0.7,
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "stacking": "none",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "liveclass-clickhouse"
+          },
+          "format": "table",
+          "rawSql": "SELECT event_type, count() AS event_count FROM events FINAL GROUP BY event_type ORDER BY event_count DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "이벤트 타입별 발생 건수",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "liveclass-clickhouse"
+      },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" } },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "id": 3,
+      "options": {
+        "barWidth": 0.7,
+        "groupWidth": 0.7,
+        "orientation": "auto",
+        "xField": "hour",
+        "showValue": "never",
+        "stacking": "none",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "liveclass-clickhouse"
+          },
+          "format": "table",
+          "rawSql": "SELECT toHour(event_timestamp) AS hour, count() AS event_count FROM events FINAL GROUP BY hour ORDER BY hour ASC",
+          "refId": "A"
+        }
+      ],
+      "title": "시간대별 이벤트 분포 (0~23시)",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "liveclass-clickhouse"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "completion_rate_pct" },
+            "properties": [
+              { "id": "unit", "value": "percent" },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "red", "value": null },
+                    { "color": "yellow", "value": 50 },
+                    { "color": "green", "value": 70 }
+                  ]
+                }
+              },
+              { "id": "custom.displayMode", "value": "color-background" }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "id": 4,
+      "options": {
+        "sortBy": [{ "displayName": "completion_rate_pct", "desc": false }],
+        "footer": { "show": false }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "liveclass-clickhouse"
+          },
+          "format": "table",
+          "rawSql": "SELECT lecture_id, countIf(event_type = 'lecture_start') AS starts, countIf(event_type = 'lecture_complete') AS completions, countIf(event_type = 'lecture_drop') AS drops, round(countIf(event_type = 'lecture_complete') * 100.0 / NULLIF(countIf(event_type = 'lecture_start'), 0), 2) AS completion_rate_pct FROM events FINAL WHERE event_type IN ('lecture_start', 'lecture_complete', 'lecture_drop') AND lecture_id IS NOT NULL GROUP BY lecture_id HAVING starts > 0 ORDER BY completion_rate_pct ASC LIMIT 20",
+          "refId": "A"
+        }
+      ],
+      "title": "강의별 완강률 vs 이탈률 (완강률 낮은 순)",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "liveclass-clickhouse"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 50 },
+              { "color": "green", "value": 70 }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "conversion_rate" },
+            "properties": [
+              { "id": "unit", "value": "percent" },
+              { "id": "displayName", "value": "전환율 (%)" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "failure_rate" },
+            "properties": [
+              { "id": "unit", "value": "percent" },
+              { "id": "displayName", "value": "실패율 (%)" },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "green", "value": null },
+                    { "color": "yellow", "value": 10 },
+                    { "color": "red", "value": 20 }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "id": 5,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "liveclass-clickhouse"
+          },
+          "format": "table",
+          "rawSql": "SELECT countIf(event_type = 'checkout_start') AS checkout_start, countIf(event_type = 'purchase_complete') AS purchase_complete, countIf(event_type = 'payment_failed') AS payment_failed, round(countIf(event_type = 'purchase_complete') * 100.0 / NULLIF(countIf(event_type = 'checkout_start'), 0), 2) AS conversion_rate, round(countIf(event_type = 'payment_failed') * 100.0 / NULLIF(countIf(event_type = 'checkout_start'), 0), 2) AS failure_rate FROM events FINAL",
+          "refId": "A"
+        }
+      ],
+      "title": "결제 퍼널 지표",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "liveclass-clickhouse"
+      },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" } },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "id": 6,
+      "options": {
+        "pieType": "pie",
+        "displayLabels": ["percent"],
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "values": ["value", "percent"]
+        },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "liveclass-clickhouse"
+          },
+          "format": "table",
+          "rawSql": "SELECT error_code, count() AS error_count FROM events FINAL WHERE event_type = 'payment_failed' AND error_code IS NOT NULL GROUP BY error_code ORDER BY error_count DESC",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": ["error_code"],
+            "keepFields": false
+          }
+        }
+      ],
+      "title": "결제 실패 에러 코드 분석",
+      "type": "piechart"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "tags": ["liveclass", "events", "realtime"],
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "LiveClass 이벤트 대시보드",
+  "uid": "liveclass-events-v1",
+  "version": 1
+}
